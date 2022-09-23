@@ -301,29 +301,22 @@ class QrScanner {
     }
 
     async turnFlashOn(): Promise<void> {
-        if (this._flashOn || this._destroyed) return;
+
         this._flashOn = true;
-        if (!this._active || this._paused) return; // flash will be turned on later on .start()
-        try {
-            if (!await this.hasFlash()) throw 'No flash available';
-            // Note that the video track is guaranteed to exist and to be a MediaStream due to the check in hasFlash
-            await (this.$video.srcObject as MediaStream).getVideoTracks()[0].applyConstraints({
-                // @ts-ignore: constraint 'torch' is unknown to ts
-                advanced: [{ torch: true }],
-            });
-        } catch (e) {
-            this._flashOn = false;
-            throw e;
-        }
+        return await (this.$video.srcObject as MediaStream).getVideoTracks()[0].applyConstraints({
+            // @ts-ignore: constraint 'torch' is unknown to ts
+            advanced: [{ torch: true }],
+        });
+   
     }
 
     async turnFlashOff(): Promise<void> {
-        if (!this._flashOn) return;
-        // applyConstraints with torch: false does not work to turn the flashlight off, as a stream's torch stays
-        // continuously on, see https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints#torch. Therefore,
-        // we have to stop the stream to turn the flashlight off.
+
         this._flashOn = false;
-        await this._restartVideoStream();
+        return await (this.$video.srcObject as MediaStream).getVideoTracks()[0].applyConstraints({
+            // @ts-ignore: constraint 'torch' is unknown to ts
+            advanced: [{ torch: false }],
+        });
     }
 
     destroy(): void {
@@ -494,10 +487,19 @@ class QrScanner {
             let image: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | OffscreenCanvas | ImageBitmap
                 | SVGImageElement;
             let canvasContext: CanvasRenderingContext2D;
-            [qrEngine, image] = await Promise.all([
-                qrEngine || QrScanner.createQrEngine(),
-                QrScanner._loadImage(imageOrFileOrBlobOrUrl),
-            ]);
+
+            if('then' in qrEngine!) {
+
+                qrEngine = await qrEngine.then(value=> {
+                    return value;
+                });
+            }
+        
+            qrEngine = await qrEngine === null ? QrScanner.createQrEngine() : qrEngine;
+            image = await QrScanner._loadImage(imageOrFileOrBlobOrUrl);
+
+
+
             [canvas, canvasContext] = QrScanner._drawToCanvas(image, scanRegion, canvas, disallowCanvasResizing);
             let detailedScanResult: QrScanner.ScanResult;
 
@@ -554,7 +556,14 @@ class QrScanner {
                     )),
                     (async (): Promise<QrScanner.ScanResult> => {
                         try {
-                            const [scanResult] = await qrEngine.detect(canvas!);
+
+                            let scanResult;
+                            if('detect' in qrEngine!){
+
+                                [scanResult] = await qrEngine.detect(canvas!);
+
+                            }
+                           
                             if (!scanResult) throw QrScanner.NO_QR_CODE_FOUND;
                             return {
                                 data: scanResult.rawValue,
